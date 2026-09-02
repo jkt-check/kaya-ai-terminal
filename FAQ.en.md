@@ -20,7 +20,7 @@
 
 **Which platforms are supported?**
 
-macOS (universal dmg for Apple Silicon and Intel) and Windows x64 (msi / nsis installers; nsis recommended). Linux is not supported yet.
+macOS (universal dmg for Apple Silicon and Intel) and Windows x64 (msi / nsis installers; nsis recommended). Linux is not supported yet. Installers are downloaded from the [official kaya download page](https://yunhou.ai/download).
 
 **macOS says it "cannot verify the developer" — what do I do?**
 

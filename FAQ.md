@@ -20,7 +20,7 @@
 
 **支持哪些平台？**
 
-macOS（Apple Silicon 与 Intel 通用，dmg 安装包）和 Windows x64（msi / nsis 安装包，推荐 nsis）。Linux 暂不支持。
+macOS（Apple Silicon 与 Intel 通用，dmg 安装包）和 Windows x64（msi / nsis 安装包，推荐 nsis）。Linux 暂不支持。安装包统一从 [kaya 官网下载页](https://www.yunhouai.com/download) 下载。
 
 **macOS 提示"无法验证开发者"怎么办？**
 
