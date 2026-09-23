@@ -10,7 +10,7 @@
 
 ## 1. 一句话承诺
 
-> kaya 运行在**你自己的 Mac** 上,LLM 只看得到你**主动给
+> kaya 运行在**你自己的电脑**(macOS / Windows)上,LLM 只看得到你**主动给
 > 它**的内容。**默认它什么文件都看不到**;你往 `~/.kaya/`
 > 下放了什么、你说的话里有什么 secret,被 5 道关卡过完之后,才进
 > LLM 的 context。
@@ -57,7 +57,12 @@
 不进 body;**Prompt 内容**是 scrubbing 后的内容,不是原始输入。
 
 **全部状态都在本机**:UI 状态在 `localStorage`,LLM 上下文 / 审计 / 调试
-在 `~/.kaya/`。状态存储无中心服务器,无遥测,无云同步。
+在 `~/.kaya/`。状态存储无中心服务器,无云同步。
+
+**用量统计(v2.1.14 起,可关闭)**:登录状态下,kaya 会收集**不含对话内容**的
+用量统计(活跃天数、使用时长、平台与版本分布),用于了解产品整体使用情况;
+默认开启,可随时在「设置 → 账户」关闭,未登录时无任何上报。它绝不包含
+对话内容、文件内容或个人身份信息。
 
 **默认模型来源(round-138, 2026-08-04)的数据出口**:kaya 出厂默认走
 **内置模型**(yunhou `/chat` 代理)—— 脱敏后的对话内容经你的登录令牌
@@ -197,31 +202,32 @@ post-scrub 字节数 — 一次 scrub 可能把 5 KiB 的粘贴缩到 1 KiB
 用户消息命中 redaction 时,UI 渲染「已脱敏」badge;截断时显示"已截断:
 原 N KiB → M KiB"。**用户清楚知道发生了什么**,而不是"系统默默改了我的话"。
 
-### 4.6 IM channel 入口(2026-08-22,v2.1.0)
+### 4.6 IM channel 入口(2026-08-22,v2.1.0;Slack 见 v2.3.6)
 
-飞书 / 企业微信是 chat 输入框之外的**第二个用户输入入口**:允许名单里的
+飞书 / Slack / 企业微信是 chat 输入框之外的**第二个用户输入入口**:允许名单里的
 用户在 IM 里给机器人发消息,由本机 kaya 的 LLM 处理并流式回复。入口换了,
 防线不换 —— 每条 inbound 消息走的仍是**同一条五道关卡 pipeline**:
 
 - **第零关照跑**:消息在进 agent loop 前过同一份 `user_input_guard`
   (scrub-first → truncate 32 KiB);工具调用照常经 policy → safety →
   隔离执行(`zsh -f -c` 独立子进程)→ output scrub。对话内容只发往你在
-  「通用」页选定的 LLM provider 路径,kaya 本身不经任何第三方中转。
+  顶栏模型切换器选定的 LLM provider 路径,kaya 本身不经任何第三方中转。
 - **准入 allowlist(默认拒绝陌生人)**:按平台用户标识准入 —— 飞书填
-  open_id(`ou_` 开头),企业微信填成员 userid。不在名单里的用户消息
+  open_id(`ou_` 开头),Slack 填成员 ID(`U` 开头),企业微信填成员 userid。
+  不在名单里的用户消息
   **直接丢弃**,不进 LLM、不产生回合、不留 conversation。名单为空时
   渠道无法启动 —— 没有准入限制等于任何人都能让 LLM 在本机执行命令。
 - **coding 能力受同一套总闸 + 授权闸约束**(2026-08-22 镜像对齐):
   IM turn 的工具表与桌面全集对齐,但 `terminal_write` 仅当 coding
   模式总闸快照开启时才注册,且执行前仍逐 tab 检查授权表 + 每分钟写
   预算(与桌面同一检查点);`agent_config` 的 edit 仍走共享授权闸,
-  未授权只发授权请求、不写盘。飞书侧授权决议经**交互卡片**做出
-  (2026-08-22 P2,见 §4.7);企微侧本轮无卡片,决议仍在桌面端做出,
+  未授权只发授权请求、不写盘。飞书 / Slack 侧授权决议经**交互卡片**做出
+  (飞书 2026-08-22 P2,Slack v2.3.6,见 §4.7);企微侧本轮无卡片,决议仍在桌面端做出,
   IM 侧无法自我授权。
-- **凭证只存 macOS 钥匙串**:飞书 App Secret / 企微 Secret 在保存时写入
-  Keychain,不落盘文件、UI 不回读显示,也绝不随对话内容发往任何 LLM provider。
+- **凭证只存系统钥匙串**:飞书 App Secret / Slack 两个 token / 企微 Secret 在保存时写入
+  系统钥匙串(macOS Keychain / Windows Credential Manager),不落盘文件、UI 不回读显示,也绝不随对话内容发往任何 LLM provider。
 - **长连接直连平台**:飞书走官方 WebSocket 长连接(open-lark),企微走
-  `wss://openws`,**不需要公网 IP 或回调服务器**,也没有第三方中转;
+  `wss://openws`,Slack 走 Socket Mode WSS,**不需要公网 IP 或回调服务器**,也没有第三方中转;
   会话映射落 `~/.kaya/channels/sessions.json`,镜像目标 chat 落
   `~/.kaya/channels/mirror.json`(2026-09-01,镜像绑定跨重启恢复),IM
   会话复用既有的
@@ -245,10 +251,10 @@ provider 一条路径扩到两条,因此全部默认关、显式 opt-in:
   把 IM turn 的事件扇出到 WebView(与桌面 llm_chat 同一个 sink 实现)。
   内容在源回合已过 output scrub 第 4 关(桌面回合按用户设置档位,
   IM 回合固定 `ScrubLevel::Strict`),镜像出站管线本身不再重复 scrub。
-- **飞书授权卡片等效桌面授权卡**(2026-08-22 P2):terminal_write /
-  agent_config edit 的授权请求在飞书渲染成带「批准 / 拒绝」按钮的交互
-  卡片,决议写入**与桌面共享的同一份 grant store** —— 飞书批的桌面认,
-  桌面批的飞书认,不存在第二套授权状态。安全边界:操作者必须逐字在
+- **飞书 / Slack 授权卡片等效桌面授权卡**(飞书 2026-08-22 P2;Slack v2.3.6):terminal_write /
+  agent_config edit 的授权请求在 IM 渲染成带「批准 / 拒绝」按钮的交互
+  卡片(Slack 为 Block Kit 按钮),决议写入**与桌面共享的同一份 grant store** —— IM 批的桌面认,
+  桌面批的 IM 认,不存在第二套授权状态。安全边界:操作者必须逐字在
   准入 allowlist(与入站消息同一道闸,陌生人回调静默丢弃);按钮指纹
   由本机组装、回调解析失败一律 fail closed;决议留痕 app_log,操作者
   只记长度不记内容。
@@ -265,10 +271,30 @@ provider 一条路径扩到两条,因此全部默认关、显式 opt-in:
   仍由 coding 模式总闸照管 —— **总闸是桌面与渠道共享的原子标志,桌面开关
   扳动经 `channel_set_coding_mode` 即时写入渠道侧,下一 IM turn 生效**;
   写入本身仍受逐 tab 驾驶授权约束。
-- **如实说明(企微限制)**:企业微信的镜像回显(UserEcho)与主动通知
+- **如实说明**:企业微信的镜像回显(UserEcho)与主动通知
   依赖活跃的回调登记(纯桌面场景没有 IM turn 在途时,出站消息可能
-  **静默丢失**);本轮仅飞书做了真机验证,企微镜像能力以代码对齐为准、
-  未经真机验收。
+  **静默丢失**);本轮仅飞书做了真机验证,Slack(v2.3.6 起接入)尚未对真实
+  工作区验证,企微镜像能力以代码对齐为准、未经真机验收。
+
+### 4.8 远程访问(Cloud Relay,v2.3.2)
+
+远程访问是 chat 输入框与 IM 之外的**第三个使用入口**:从浏览器远程查看和
+操作本机 kaya,会话、运行中 agent 状态、审批提示与桌面实时同步。它是
+「对话内容出本机」的又一条新增路径,因此与镜像一样**默认关、显式 opt-in**:
+
+- **纯内存转发,不落盘**:会话内容经 yunhou 服务器**仅内存转发**,服务器
+  不持久化任何会话数据;关闭开关立即断开。
+- **API Key 绝不经过中继**:本机仍直连模型服务商,key 的出机路径不因
+  远程访问增加任何一跳;全程 TLS 加密。
+- **同一套五道关卡 + 同一份授权**:远程回合走与桌面完全相同的
+  input scrub → policy → safety → 隔离执行 → output scrub 管线;
+  `terminal_write` 等写操作共用桌面那份 grant store,远程与桌面的审批
+  **互相认可**,不存在第二套授权状态。
+- **前置条件与生命周期**:需登录 yunhou 账号且有有效订阅,否则开关置灰;
+  订阅到期 / 取消 / 登出时远程访问自动停止并明示。
+- **设备身份**:首次启用生成 device ID,设备名可自定义(≤64 字符);身份
+  文件存 `~/.kaya/remote/device.json`(权限 0o600);会话与审计仍只落本机
+  `~/.kaya/`。
 
 ---
 
@@ -626,7 +652,8 @@ review R2 对照 gitleaks 常见规则补了 8 类,见 Tier 0 列表末尾):
   (`eyJ…​.…​.…`,每段 ≥8 字符,类别 `jwt`)
 - 通用 `api_key=xxx` 形式 (有 fake-key 过滤: `xxx` / `changeme` /
   `placeholder` 等不误吃)。**2026-08-20 review C3**:值前加可选引号
-  `['"]?` —— `~/.kaya/agent-providers.json` 存 `"api_key": "sk-…"`
+  `['"]?` —— `~/.kaya/agent-providers.json`(v2.2.1 前的旧供应商库,
+  已被统一模型库取代,key 已迁入系统钥匙串)存 `"api_key": "sk-…"`
   (JSON 形式),旧的 `:` 形式正则被 `:` 与值之间的 `"` 阻断,整条 JSON
   值会经 trusted-read `cat` 漏给 LLM。Rust `API_KEY_RE` 与 TS
   `scrubber.ts` 对齐(TS 原本就有 `['"]?`),parity 测试
@@ -809,9 +836,10 @@ chat 的 `terminal_read` 工具可以列出你的终端 tab 并读取指定 tab 
 
 **等待感知(2026-08-16,B)**:tab 交互确认提醒的 watcher 为**只读**——只对画面快照做模式匹配,绝不向终端注入输入;通知卡片上的确认内容摘要(excerpt)经 secret 脱敏后仅用于本地展示与通知,不会发送给模型。**例外(coding 模式,2026-08-17)**:当你显式开启 coding 模式后,上述经脱敏的 excerpt 会作为 host 指令文本的一部分进入一次 chat 回合——即随该回合发送给你当前选用的模型,用于让 kaya 主动转达「哪个 tab 在等你决策 / 哪个任务已跑完」并向你询问指示。coding 模式默认关闭;关闭它即恢复「excerpt 不发送给模型」的默认行为。
 
-**Agent 配置文件读写(2026-08-17,P2-F1)**:chat 的 `agent_config` 工具可读取/修改三个受支持编程 agent 的 CLI 配置文件:claude-code → `~/.claude/settings.json`、kimi-code → `~/.kimi-code/config.toml`、opencode → `~/.config/opencode/opencode.json`。
+**Agent 配置文件读写(2026-08-17,P2-F1;Codex 见 v2.2.0)**:chat 的 `agent_config` 工具可读取/修改四个受支持编程 agent 的 CLI 配置文件:claude-code → `~/.claude/settings.json`、kimi-code → `~/.kimi-code/config.toml`、opencode → `~/.config/opencode/opencode.json`、codex → `~/.codex/kaya.config.toml`(kaya 专用独立 profile,与 ChatGPT 桌面版隔离)。
 - **读取**:`action="read"` 返回的内容先做键名脱敏(key/token/secret/password 命名的键只回前 4 字符 + `***`),再整体过一遍 secret scrubber 兜底(非敏感键名下的 secret 也不会发给模型)。
 - **修改需显式授权**:`action="edit"` 是持久写入——每次修改都必须经你在对话中的授权卡片确认后才落盘;授权卡片只展示目标文件路径与待合并的顶层**键名**(patch 的值可能含密钥,从不上卡片、不进事件)。授权存内存、绑定 (会话, agent),新聊天会话会重新询问,app 重启清空。未授权时模型只收到「等待用户确认」的提示,不会写入任何字节。
+- **模型配置字段上锁(v2.2.1)**:AI 仍可在排查时**读取** agent 配置,但**不再能修改**其中的模型名、端点地址或 key——这类修改一律拒绝,并引导你去「设置 → Models」的模型库操作(模型库是唯一事实源与唯一写入方,编辑 / 删除条目会自动同步到已绑定的 agent)。
 - **写前备份**:每次写入先把旧版本备份为 `<file>.bak`;深合并保留 patch 未提及的既有字段。
 - **`hooks` 键一律拒绝**:该键可在 agent 后续运行时装订任意 shell 命令,经本工具的合并请求会被直接拒绝(连授权卡片都不会出现),需你手动编辑配置文件。
 - **审计**:每次授权请求与每次成功写入各记一条本地 App 日志(`~/.kaya/logs/`,含 agent、文件路径、合并的顶层键名——**绝不含值**)。
@@ -834,14 +862,15 @@ chat 的 `terminal_read` 工具可以列出你的终端 tab 并读取指定 tab 
 |---|---|---|---|
 | UI 状态(消息 / 设置) | `localStorage` key `kaya` | 前端 Zustand persist | 用户主动清 |
 | LLM 上下文 | `~/.kaya/conversations/c_*.json` | Rust `ConversationStore` | 用户主动清 |
-| 审计日志 | `~/.kaya/audit/s_*/events-*.jsonl` | 前端 `recordEvent` (Rust 调 fs) | 用户主动清 |
+| 审计日志 | `~/.kaya/audit/s_*/events-*.jsonl` | 前端 `recordEvent` (Rust 调 fs) | 自动保留 90 天(v2.1.10 起,过期自动清理);用户也可主动清 |
 | Debug capture(可选) | `~/.kaya/debug/s_*/turn-N.json` | Rust debug module | dev-only,默认关 |
 | App 诊断日志 | `~/.kaya/logs/app-YYYY-MM-DD.jsonl` | Rust `app_log`(前端 `snapshotCursor` 光标诊断探针;2026-08-26 起渠道重连错误按变化去重落盘,tag `channel` —— Windows GUI 构建无 stderr,这是该平台唯一留痕) | 手动清理 7 天前(Settings → App 日志);文件 0o600;**内容仅诊断元数据**(DOM/CSS 状态、计数、字节长度;渠道连接错误文本含主机名/错误描述,URL query/fragment 已脱敏不落 ticket),不含 PTY 输出/键入/secret |
 | 终端滚动历史 | `~/.kaya/terminal/<tabId>.log` | Rust scrollback append(round-89) | 10MB cap + truncate-to-75% 轮转;tab 关闭即删 |
 | Per-tab shell 历史 | `~/.kaya/history/<tab_id>.history` | Rust per-tab HISTFILE(round-111);Windows 移植 Phase 2 起 Windows 会话为 PSReadLine `HistorySavePath`(per-tab init.ps1 注入,等价 HISTFILE 机制) | tab 关闭 merge 回 `~/.zsh_history`;文件 0o600 |
-| 登录令牌(refresh_token) | macOS 钥匙串(`com.kaya.auth` / dev `com.kaya.dev.auth`) | Rust `auth_tauri`(round-137/138,只写 refresh_token 单 item) | 登出 / 401 清理删除;access_token 不持久化(仅内存,15min TTL) |
-| API Key(自备 key) | `localStorage` | 前端(不存磁盘文件) | 用户主动清;内置模型默认不使用 |
-| Agents 供应商库(含 API Key) | `~/.kaya/agent-providers.json` | Rust agents 模块(Agents 管理中心「使用/保存」) | 用户主动删;**API Key 明文存储**(与 cc-switch 一致,设置 UI 已标注)。2026-08-20 review C3 起:**文件 0o600 原子写 + 读取时收紧旧版 0644 权限**(同机其它用户不可读);同时 scrub 正则覆盖 `"api_key": "…"` JSON 形态,LLM 即便经 trusted-read `cat` 读到该文件,key 值也会被 redact |
+| 登录令牌(refresh_token) | 系统钥匙串(macOS Keychain `com.kaya.auth` / dev `com.kaya.dev.auth`;Windows Credential Manager) | Rust `auth_tauri`(round-137/138,只写 refresh_token 单 item) | 登出 / 401 清理删除;access_token 不持久化(仅内存,15min TTL) |
+| API Key(自备 key) | 系统钥匙串(macOS Keychain / Windows Credential Manager) | Rust(v2.2.1 起;更早版本的 localStorage / 配置文件明文 key 在升级后自动迁移) | 用户主动清;内置模型默认不使用;删除模型条目时一并删除 |
+| 统一模型库(条目定义,不含 key) | `~/.kaya/` 下的模型库文件(不含 API Key 值) | Rust models 模块(设置 → Models;v2.2.0 集中化、v2.2.1 统一为唯一写入方) | 用户主动删;旧版 `~/.kaya/agent-providers.json`(明文 key,0o600 原子写)已被模型库取代并自动迁移 |
+| 远程访问设备身份 | `~/.kaya/remote/device.json` | Rust remote 模块(v2.3.2) | 权限 0o600;关闭远程访问即断开 |
 | IM 渠道会话映射 | `~/.kaya/channels/sessions.json` | Rust channels 模块(v2.1.0,IM 平台用户 ↔ 本机会话) | 用户主动清 |
 | IM 镜像目标 chat | `~/.kaya/channels/mirror.json` | Rust channels 模块(Unreleased,镜像绑定跨重启恢复) | 用户主动清(渠道运行中删除不会在原地重建,绑定跨重启恢复随之失效,重启后回退 sole_key 启发式) |
 | App 版本元信息(显示用) | 内存(`AppInfo` runtime 字段,**不持久化**) | Rust `get_app_info`(`src-tauri/src/app_info.rs`,round-56) | 进程内,重启重读 |
@@ -1003,7 +1032,7 @@ judge 永远报 decision-drift**(已锁测试,见 `auditEval.test.ts`)。改时:
   预算 — 后果是任务失败,不是泄漏
 - **用户在 terminal 里直接输入的命令不受任何门拦截** — 这是设计决策
   (用户的 shell 用户的责任),不是漏洞
-- **Windows / Linux 不在 Phase 1** — 当前仅 macOS
+- **Linux 暂不支持** — 当前支持 macOS 与 Windows(x64)
 
 ---
 
@@ -1027,7 +1056,7 @@ judge 永远报 decision-drift**(已锁测试,见 `auditEval.test.ts`)。改时:
 
 ## 14. 一句话总结
 
-> kaya **运行在你的 Mac** 上,**默认** LLM 看不到文件内容,
+> kaya **运行在你的电脑** 上,**默认** LLM 看不到文件内容,
 > 你说的每句话 / 工具的每个输出在出门前都被 5 道关卡过了一遍,所有
 > 状态都留在本机可被回放审计。**Privacy First 是结构性的,不是
 > 配置项 — 改不了**。

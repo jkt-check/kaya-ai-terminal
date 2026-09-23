@@ -11,7 +11,8 @@
 - [Models & Configuration](#models--configuration)
 - [Terminal & Tabs](#terminal--tabs)
 - [Coding-agent Collaboration (coding mode)](#coding-agent-collaboration-coding-mode)
-- [IM Channels (Feishu / WeCom)](#im-channels-feishu--wecom)
+- [IM Channels (Feishu / Slack / WeCom)](#im-channels-feishu--slack--wecom)
+- [Remote Access (browser)](#remote-access-browser)
 - [Troubleshooting](#troubleshooting)
 
 ---
@@ -58,11 +59,11 @@ Only your (scrubbed) chat text and (scrubbed) tool results, sent to the model so
 - **OpenAI compatible (your own key)**: sent to the LLM provider you chose (DeepSeek / OpenAI / OpenRouter / etc.);
 - **Ollama (local)**: nothing leaves your machine.
 
-Your local files, API key contents, and environment variables are never sent. Local UI state, sessions, and audit logs live only on your machine (`localStorage` + `~/.kaya/`) — no cloud sync, no telemetry.
+Your local files, API key contents, and environment variables are never sent. Local UI state, sessions, and audit logs live only on your machine (`localStorage` + `~/.kaya/`) — no cloud sync. When signed in, kaya collects **usage statistics** (active days, usage duration, platform and version distribution, since v2.1.14) — **never** conversation content, file content, or personal identity information — and you can turn this off anytime in Settings → Account; nothing is reported while signed out.
 
 **Where is my API key stored?**
 
-Only on your machine. It is sent to your chosen LLM provider in the authentication header of each request, for that provider's authentication — never to any other party. kaya does not promise "never uploaded": any network request needs authentication, and authentication needs the key.
+Only in your machine's **system keychain** (macOS Keychain / Windows Credential Manager, since v2.2.1; local configuration from earlier versions is migrated automatically). It is sent to your chosen LLM provider in the authentication header of each request, for that provider's authentication — never to any other party, and never written to the audit log. kaya does not promise "never uploaded": any network request needs authentication, and authentication needs the key.
 
 **Can the AI delete my files?**
 
@@ -78,11 +79,11 @@ Every session automatically writes a JSONL audit log (`~/.kaya/audit/`). Setting
 
 **Do I need my own API key?**
 
-No. The default is the **built-in model**: sign in with WeChat and you're ready — no key needed. You can also switch to "OpenAI compatible" with your own key (DeepSeek / OpenAI / OpenRouter / Ollama / custom endpoint), or pick Ollama for fully local inference.
+No. The default is the **built-in model**: sign in with WeChat and you're ready — no key needed. You can also switch to "OpenAI compatible" with your own key (DeepSeek / Kimi / GLM / MiniMax / Qwen / OpenAI / OpenRouter / SiliconFlow / Ollama / custom endpoint, etc.), or pick Ollama for fully local inference. Two-tier feature gating (since v2.1.5): sign in to use bring-your-own-key (BYOK) chat for free; a paid subscription unlocks the built-in model, coding mode, and IM channels / remote access.
 
 **Which providers are supported?**
 
-Five built-in presets: DeepSeek, OpenAI, OpenRouter, Ollama, and Custom (OpenAI compatible). For Moonshot / SiliconFlow / Zhipu GLM / self-hosted vLLM, choose "Custom" and fill in their OpenAI-compatible endpoint. Since v2.1.8 you can save multiple model profiles and switch from the top bar.
+The BYOK presets have grown from 5 to 11 (v2.1.14): DeepSeek, Kimi (Moonshot), GLM (Zhipu), MiniMax, Qwen (DashScope), SiliconFlow, OpenCode Zen, OpenAI, OpenRouter, Ollama, and Custom (OpenAI compatible). Default models follow each vendor's current lineup, and thinking-capable models automatically get the right reasoning parameters. Since v2.1.8 you can save multiple model profiles and switch with one click from the model switcher in the top bar.
 
 **What is Thinking Mode?**
 
@@ -114,31 +115,43 @@ Settings → General → Shell → "Reconnect now".
 
 **What is coding mode?**
 
-Turn on the coding-mode toggle in the top bar and kaya actively watches the coding agents (Claude Code / Kimi Code / OpenCode / Reasonix, …) running in your tabs: it relays confirmation prompts to you and summarizes progress when a task finishes. Monitoring is read-only — decisions are always yours.
+Turn on the coding-mode toggle in the top bar and kaya actively watches the coding agents (Claude Code / Kimi Code / OpenCode / Codex, …) running in your tabs: it relays confirmation prompts to you and summarizes progress when a task finishes. Monitoring is read-only — decisions are always yours.
 
 **Can the AI operate my terminal directly?**
 
 Not by default. The AI is an **observer** of your terminal (reads output only), not an operator. The single exception: with the coding-mode master switch on, a supported AI CLI in the tab's foreground, and your per-item approval on the grant card, the AI may type into that tab on your behalf. Grants bind to the current process and expire when it exits or the tab closes; you can revoke anytime. Your regular shell prompt never accepts AI input.
 
-**How do `/agents` and `/` commands work?**
+**How do `/agents`, `@` and `/` commands work?**
 
-Type `/` in the chat input to open the command menu: `/agents` lists and binds running agents, `/new` starts a new conversation, `/sessions` browses history, `/help` shows help. Once bound, non-built-in `/commands` (e.g. `/auto`) are forwarded straight to that agent's input line without consuming an LLM turn.
+Type `/` in the chat input to open the command menu: `/agents` lists and binds running agents, `/new` starts a new conversation, `/sessions` browses history, `/help` shows help. You can also type `@` directly (since v2.3.1) to summon the list of running agents; picking one binds it and completes the `@instance ID` into the input box. Once bound, non-built-in `/commands` (e.g. `/auto`) are forwarded straight to that agent's input line without consuming an LLM turn.
 
 **What does the Agents management center do?**
 
-Silently installs / updates / uninstalls coding agents in the background (npm > brew > official script), and keeps multiple model-provider profiles per agent, written into each agent's own config file with one click (automatic .bak backup first). You can also just say "install Claude Code for me" in the chat.
+Silently installs / updates / uninstalls coding agents in the background (npm > brew > official script, automatically falling back to the next method on failure). Model configuration is maintained centrally in the model library under **Settings → Models** (API keys live only in the system keychain); in the Agents panel, click "Use" to bind an entry to an agent and write it into that agent's own config file (automatic .bak backup first) — editing or deleting an entry later syncs automatically to the agents bound to it. You can also just say "install Claude Code for me" in the chat.
 
 ---
 
-## IM Channels (Feishu / WeCom)
+## IM Channels (Feishu / Slack / WeCom)
 
-**Can I use kaya from Feishu?**
+**Can I use kaya from Feishu / Slack?**
 
-Yes (since v2.1.0). Settings → IM Channels — the recommended path is "Connect Feishu by scanning a QR code", which completes the setup in one step. Once running, message the bot in Feishu and your local kaya processes it and streams the reply — direct long-connection, no public IP needed. The WeCom entry is currently greyed out ("coming soon").
+Yes (Feishu since v2.1.0, Slack since v2.3.6). Settings → IM Channels: for Feishu the recommended path is "Connect by scanning a QR code", which completes the setup in one step; for Slack, create an app at api.slack.com (enable Socket Mode, subscribe to message events), then paste the two tokens in. Once running, message the bot in the IM and your local kaya processes it and streams the reply — direct long-connection, no public IP needed. The WeCom entry is currently greyed out ("coming soon"; existing configurations are kept and will return in a future version).
 
 **Can strangers message the bot?**
 
-No. The admission allowlist rejects everything from outside the list by default, and the channel won't start with an empty list. IM messages go through the same five-gate privacy pipeline as desktop chat, and platform credentials live only in the system keychain.
+No. The admission allowlist rejects everything from outside the list by default, and the channel won't start with an empty list. IM messages go through the same five-gate privacy pipeline as desktop chat, and platform credentials live only in the system keychain; Approve / Deny cards in IM are mutually recognized with the desktop grant cards.
+
+---
+
+## Remote Access (browser)
+
+**Can I use kaya when I'm away from my computer?**
+
+Yes (since v2.3.2). Turn on the switch in Settings → Remote Access (sign-in to your yunhou account and an active subscription required), then sign in on the yunhou website and open the "Remote Control" page to view and operate this machine's kaya from a browser — conversations, running-agent status, and approval prompts stay in real-time sync with the desktop.
+
+**Is remote access data safe?**
+
+The feature is off by default and explicitly opt-in; turning it off disconnects immediately. Conversation content transits the yunhou server **in memory only and is never persisted**; **API keys never transit the relay** — this machine still connects to model providers directly; everything is TLS-encrypted. Remote turns go through the same five gates as the desktop, and write operations share the same grant state as the desktop (mutually recognized).
 
 ---
 
@@ -161,6 +174,10 @@ Check whether `~/.kaya/conversations/` was cleaned up. To wipe all local data: `
 **Where are the diagnostic logs?**
 
 Settings → App Log → "Open log folder"; logs live under `~/.kaya/logs/` (they do not contain your conversation content).
+
+**The built-in model reports "Request Rejected by Upstream (502)" — what do I do?**
+
+The upstream model service rejected the request (common causes: context too long / content review / insufficient quota). kaya first **auto-compacts earlier conversation history and retries once** (this only affects the AI's context — your visible chat history is unchanged); if it still fails, the error card shows guidance for the specific cause plus a one-click "New session" button to start a fresh conversation (your terminal tabs and running agents are unaffected).
 
 **Anything else?**
 

@@ -11,7 +11,7 @@
 
 ## 1. The One-Sentence Promise
 
-> kaya runs on **your own Mac**, and the LLM only sees what you **actively give it**.
+> kaya runs on **your own computer** (macOS / Windows), and the LLM only sees what you **actively give it**.
 > **By default it cannot see any of your files.** Whatever you put under `~/.kaya/`,
 > whatever secrets are in what you type — only after passing through 5 gates does it
 > enter the LLM's context.
@@ -61,7 +61,14 @@ not the raw input.
 
 **All state stays on the local machine**: UI state lives in `localStorage`; LLM
 context / audit / debug live under `~/.kaya/`. State storage has no central
-server, no telemetry, no cloud sync.
+server, no cloud sync.
+
+**Usage statistics (since v2.1.14, optional)**: when signed in, kaya collects
+usage statistics that contain **no conversation content** (active days, usage
+duration, platform and version distribution) to understand overall product
+usage; on by default, can be turned off anytime in "Settings → Account", and
+nothing is reported while signed out. It never includes conversation content,
+file content, or personal identity information.
 
 **Default model source's data egress (round-138, 2026-08-04)**: by default kaya
 uses the **built-in model** (the yunhou `/chat` proxy) — scrubbed chat content
@@ -224,6 +231,140 @@ invariant.
 When a user message has a redaction hit, the UI renders a "Redacted" badge; on
 truncation it shows "Truncated: original N KiB → M KiB". **The user knows exactly
 what happened**, instead of "the system silently edited my words".
+
+### 4.6 IM channel entry (2026-08-22, v2.1.0; Slack see v2.3.6)
+
+Feishu / Slack / WeCom are the **second user-input entry** besides the chat
+input box: users on the allowlist message the bot in the IM, and the local
+kaya LLM handles it and streams a reply. The entry changes; the defenses do
+not — every inbound message still goes through the **same five-gate pipeline**:
+
+- **Gate 0 runs as usual**: before entering the agent loop, the message passes
+  the same `user_input_guard` (scrub-first → truncate 32 KiB); tool calls go
+  through policy → safety → isolated execution (`zsh -f -c` independent
+  subprocess) → output scrub as usual. Conversation content goes only to the
+  LLM provider path you selected in the top-bar model switcher; kaya itself
+  does not transit through any third party.
+- **Admission allowlist (strangers denied by default)**: admission is by
+  platform user identifier — Feishu open_id (`ou_` prefix), Slack member ID
+  (`U` prefix), WeCom member userid. Messages from users not on the list are
+  **dropped outright** — they never reach the LLM, never start a turn, never
+  leave a conversation. The channel cannot start with an empty list — without
+  admission limits, anyone could make the LLM execute commands on this machine.
+- **Coding capability governed by the same master gate + grant gate**
+  (2026-08-22 mirror alignment): an IM turn's tool table is aligned with the
+  desktop's full set, but `terminal_write` is registered only while the
+  coding-mode master-gate snapshot is on, and still checks the per-tab grant
+  table + the per-minute write budget before execution (the same checkpoint
+  as the desktop); `agent_config` edits still go through the shared grant
+  gate — without a grant, only a grant request is sent and nothing hits disk.
+  Grant decisions on the Feishu / Slack side are made via **interactive
+  cards** (Feishu 2026-08-22 P2, Slack v2.3.6, see §4.7); the WeCom side has
+  no cards this round — decisions are still made on the desktop, and the IM
+  side cannot self-authorize.
+- **Credentials live only in the system keychain**: the Feishu App Secret /
+  Slack's two tokens / the WeCom Secret are written to the system keychain
+  (macOS Keychain / Windows Credential Manager) on save — never to a disk
+  file, never read back into the UI, and never sent to any LLM provider along
+  with conversation content.
+- **Direct long connection to the platform**: Feishu uses the official
+  WebSocket long connection (open-lark), WeCom uses `wss://openws`, Slack uses
+  Socket Mode WSS — **no public IP or callback server needed**, and no
+  third-party relay; session mappings land at
+  `~/.kaya/channels/sessions.json`, the mirror target chat lands at
+  `~/.kaya/channels/mirror.json` (2026-09-01, mirror binding restored across
+  restarts), and IM conversations reuse the existing conversation JSONL
+  persistence (`~/.kaya/conversations`, see §8). **Honest note**: the channel
+  entry is not yet wired into the audit JSONL — the audit trail has no IM
+  send/receive rows; this gap is planned to be closed in a later round; the
+  five gates themselves do not depend on the audit log and run gate-by-gate
+  inside the IM pipeline as usual.
+
+### 4.7 IM channels & mirroring (2026-08-22)
+
+Mirroring is an **optional enhancement** on top of §4.6 that widens the
+boundary of "conversation content leaving this machine" from one path (the
+LLM provider) to two — therefore everything is off by default and explicitly
+opt-in:
+
+- **Mirroring = the project's only new content-egress path, off by default**.
+  Before enabling, outbound conversation content goes only to the effective
+  LLM provider; after enabling "desktop → IM mirroring", the desktop chat's
+  message stream (including echoes of your own input, "你:…" prefixed) is
+  pushed in real time to your designated IM chat. The toggle lives in
+  Settings → IM Channels and can be flipped while running
+  (`channel_set_mirror`); turning mirroring off does not break the binding —
+  re-enabling resumes mirroring the original chat without re-notifying.
+- **Both directions share the same outbound pipeline**: desktop → IM goes
+  through FanoutSink reusing ChannelEventSink (the same rendering /
+  throttling / egress as IM turns); IM → desktop fans the IM turn's events
+  out to the WebView (the same sink implementation as desktop llm_chat).
+  Content has already passed output-scrub gate 4 at the source turn (desktop
+  turns use the user's configured level; IM turns are fixed at
+  `ScrubLevel::Strict`); the mirror egress pipeline itself does not re-scrub.
+- **Feishu / Slack grant cards equivalent to desktop grant cards** (Feishu
+  2026-08-22 P2; Slack v2.3.6): grant requests for terminal_write /
+  agent_config edits render in the IM as interactive cards with Approve /
+  Deny buttons (Block Kit buttons on Slack); decisions are written into
+  **the same grant store shared with the desktop** — IM approvals are
+  recognized by the desktop and desktop approvals by the IM; there is no
+  second grant state. Security boundary: the operator must be verbatim on
+  the admission allowlist (the same gate as inbound messages; stranger
+  callbacks are silently dropped); button fingerprints are assembled locally,
+  and callback parse failures always fail closed; decisions leave a trail in
+  app_log, recording the operator by length only, never by content.
+- **Proactive agent-status notifications** (2026-08-22 P3): with mirroring
+  on, state transitions of the coding agent in the bound tab (waiting for
+  input / idle-done / online / exited) are pushed to the mirrored chat,
+  rendered in zh/en per the channel's language snapshot. The screen summary
+  (excerpt) in the notification uses **the same already-scrubbed text** as
+  the desktop "pending decision bar" (passing the same scrub_text pipe before
+  the watcher emits) — it is not a new content egress; per (tab, kind)
+  cooldowns (60s / 300s / 30s) prevent notification storms; push failures
+  are all silent and never affect the watcher or the IM main link.
+- **IM tool table aligned with the desktop full set** (2026-08-22 mirror
+  alignment): terminal_read / terminal_write / agent_config / task_list
+  share the same stores with the desktop (terminal history / writer / grant /
+  abort tables / task-list snapshot). `terminal_write` remains governed by
+  the coding-mode master gate — **the master gate is an atomic flag shared
+  between desktop and channel; flipping the desktop switch is written into
+  the channel side immediately via `channel_set_coding_mode` and takes
+  effect from the next IM turn**; the write itself is still subject to
+  per-tab driving grants.
+- **Honest note**: WeCom mirror echoes (UserEcho) and proactive
+  notifications depend on an active callback registration (in pure-desktop
+  scenarios with no IM turn in flight, outbound messages may be **silently
+  dropped**); only Feishu was verified on a real device this round — Slack
+  (added in v2.3.6) has not yet been validated against a real workspace, and
+  WeCom mirror capability is code-aligned but not device-accepted.
+
+### 4.8 Remote Access (Cloud Relay, v2.3.2)
+
+Remote access is the **third usage entry** besides the chat input and IM:
+view and operate this machine's kaya from a browser, with conversations,
+running-agent status, and approval prompts in real-time sync with the
+desktop. It is yet another new path for "conversation content leaving this
+machine", so like mirroring it is **off by default and explicitly opt-in**:
+
+- **In-memory relay only, nothing persisted**: conversation content transits
+  the yunhou server **in memory only**; the server persists no session data;
+  turning the switch off disconnects immediately.
+- **API keys never transit the relay**: this machine still connects to model
+  providers directly — remote access adds no extra hop to a key's egress
+  path; everything is TLS-encrypted.
+- **The same five gates + the same grants**: remote turns go through the
+  exact same input scrub → policy → safety → isolated execution → output
+  scrub pipeline as the desktop; write operations like `terminal_write`
+  share the desktop's grant store — remote and desktop approvals are
+  **mutually recognized**, with no second grant state.
+- **Preconditions and lifecycle**: signing in to a yunhou account with an
+  active subscription is required, otherwise the switch is greyed out; on
+  subscription expiry / cancellation / sign-out, remote access stops
+  automatically and says so.
+- **Device identity**: a device ID is generated on first enable; the device
+  name is customizable (≤64 characters); the identity file lives at
+  `~/.kaya/remote/device.json` (permissions 0o600); sessions and audit still
+  land only under local `~/.kaya/`.
 
 ---
 
@@ -428,6 +569,131 @@ gates** — you are responsible for your own shell behavior. This is a design
 decision, not a vulnerability: typing `rm -rf` is not blocked, typing `kill` is
 not blocked. We **do not** make that decision for you.
 
+### 5.3 Windows semantics layer (Windows port Phase 1b, 2026-08-24)
+
+On Windows the `run_shell` subprocess is PowerShell (Phase 1d), and Windows
+PowerShell / pwsh ship a large set of Unix-style aliases (`cat` → Get-Content,
+`ls` → Get-ChildItem, `rm` → Remove-Item, etc.), so **Unix command names still
+execute on Windows**; conversely, dangerous Windows cmdlets do not exist on
+Unix, so matching them there is harmless. Accordingly:
+
+- **The 3 tables**: "Unix tables as-is + Windows additions as a union".
+  `OsFlavor` gains a `Windows` variant; `allowed_bases_for(flavor)` /
+  `stream_transformers_for(flavor)` / `file_readers_for(flavor)` are built per
+  flavor (Macos → CORE ∪ MACOS_EXTRA; Windows → (CORE − `type` − `find`) ∪
+  WINDOWS_EXTRA; Linux → CORE). **`type` exception**: on Unix it is a pure
+  metadata builtin; in pwsh it is a `Get-Content` alias (reads files), so on
+  Windows it is removed from METADATA and placed in FILE_READERS. **`find`
+  exception** (2026-08-24 review): on Unix it is structural query; on Windows
+  find.exe has **grep semantics (reads file content)**, so on Windows it is
+  removed from METADATA and falls to allowlist-miss (the pwsh-correct
+  `Select-String` is already in the stream-transformer table); macOS / Linux
+  `find` is untouched. Windows additions: METADATA gains `where` / `tasklist`
+  / `ipconfig` / `systeminfo` / `Get-Process` / `Get-ChildItem` /
+  `Get-Location` and other read-only cmdlets; STREAM_TRANSFORMERS gains
+  `Select-Object` / `Sort-Object` / `Select-String` / `Where-Object` /
+  `Compare-Object` (**not** `ForEach-Object` — scriptblock code execution;
+  **not** `Tee-Object` — the same T-junction disk-write as tee);
+  FILE_READERS gains `Get-Content` / `type` / `Format-Hex`. PowerShell
+  command names are case-insensitive: Windows table entries are stored
+  lowercase and bases are normalized to lowercase before lookup
+  (`table_base_key`). 2026-08-24 follow-up: METADATA gains `Get-Command`
+  (the pwsh-correct semantics of which — `where` in pwsh is a `Where-Object`
+  alias and errors at runtime; the explicit `where.exe` form stays in the
+  table); `table_base_key`'s Windows normalization also **strips a trailing
+  `.exe`** (case-insensitive; `where.exe` / `Get-Content.exe` hit the same
+  entry as the bare name; **Unix does not strip** — `.exe` is a legitimate
+  filename character on Unix). The stripped key is used only for
+  allowlist / 3-table lookup and does not change the command actually
+  executed; allowlist entries are all read-only semantics, with no
+  privilege-escalation surface (see the `table_base_key` comment in
+  policy.rs for the evaluation).
+- **Blacklist / safety danger surface**: both platforms share a single
+  **global union** (not split by flavor). The policy permanent blacklist
+  gains `iex` / `Invoke-Expression`, nested `powershell` / `pwsh` (whole
+  command names, covering every form of `-enc` / `-EncodedCommand`
+  base64-hidden execution), `cmd /c|/k`, `wsl`, `Get|Set-Clipboard`
+  (aligned with `pbpaste`/`pbcopy`). Safety DANGEROUS gains
+  `format <drive>:` (anchored to the drive letter to avoid false-positiving
+  `git format-patch`), `diskpart` / `bcdedit` / `reg add|delete` /
+  `Set-ExecutionPolicy` / `Stop|Restart-Computer` / `Clear-Disk` /
+  `Remove-Item -Recurse -Force` (aligned with `rm -rf`); OPERATION gains
+  `Stop|Restart-Process`, `Stop|Start|Restart-Service`, `Set|Add-Content` /
+  `Out-File`, `New|Rename|Move|Copy-Item`.
+- **Trusted-root path normalization** (security invariant, fail-closed):
+  `%USERPROFILE%` and `$env:USERPROFILE` expansion (case-insensitive; other
+  forms are not expanded and are denied); `\` / `/` unified to `/`; drive
+  letters and whole-path comparison are case-insensitive (NTFS semantics;
+  Unix stays sensitive); UNC (`\\server\share`) always denied; `..` escapes
+  keep the post-normalization prefix check; `.kaya-evil`-style prefix
+  misjudgments keep the "exactly equal or root + `/`" boundary check;
+  **8.3 short names** (`KAYA~1`) cannot be judged by pure strings — tightened
+  with the fallback "any normalized path segment containing `~` is denied"
+  (Windows-only rule; macOS behavior unchanged). Null-device exceptions per
+  flavor: Unix `/dev/null` (plus `/dev/zero` / `/dev/urandom` on the input
+  side), Windows `NUL` / `$null` — the Windows forms are not merged into
+  Unix (`NUL` is an ordinary filename on Unix; allowing it would let
+  `echo x > NUL` write to cwd). All normalization is implemented as pure
+  functions of the flavor parameter, so Windows cases are fully testable on
+  a macOS host.
+- **heredoc / `$(...)` scan evaluation conclusion**: PowerShell has no
+  heredoc syntax, so the existing scan has **no false positives** on
+  PowerShell command strings; `$(` is a sub-expression in PowerShell (an
+  execution channel), and Layer 0a keeps hard-denying it; **backtick is an
+  escape character in PowerShell**, not command substitution — the Windows
+  flavor no longer treats backticks as command substitution (otherwise
+  `Write-Output "a`nb"` would be a false kill). The false-negative surface
+  (PowerShell here-strings `@"..."@`) is deliberately not patched and is
+  covered by the allowlist-miss catch-all.
+- **PowerShell execution forms are hard-denied wholesale** (2026-08-24
+  review, fail-closed): on the Windows flavor, Layer 0a hard-denies unquoted
+  `(` at the same level as `$(` — `(...)` grouping sub-expressions and
+  `@(...)` array sub-expressions are both legitimate PowerShell syntax that
+  **evaluates first and then passes as an argument** (`Write-Output
+  (Get-Content file)` previously bypassed the entire gate). A bare `(`
+  inside double quotes is a literal and is not blocked (PowerShell double
+  quotes only interpolate `$(` and backticks); false-killing legitimate
+  forms like `(Get-Date).Year` is a deliberate trade-off — split internal
+  commands into separate calls. Same batch: **`\` is a path separator in
+  PowerShell, not an escape character** — the two-character backslash skips
+  in the command-substitution scanner and the redirect scanner
+  (strip_unquoted_redirects) are all disabled on the Windows flavor —
+  otherwise the `$(` in `C:\$(Get-Clipboard)` and the `\>` in
+  `Get-Date \> out.txt` would be eaten as escape pairs, causing
+  arbitrary-read / arbitrary-write fail-open respectively. Since Round 2
+  the segmenter (split_segments) also disables the skip: `;` / `|` in
+  PowerShell do not require surrounding whitespace, and the `\;` / `\|`
+  escaped forms in `Write-Output x\;Get-Content C:\secret` once swallowed
+  the whole command into a single segment (base ∈ METADATA allowed, the
+  swallowed reader never scanned) — now likewise hard-denied. Unix behavior
+  is byte-identical (zsh's `\` escape semantics and the syntax-error nature
+  of bare `(...)` are unchanged).
+- **Gate explicitly flavored** (2026-08-24 review): `check_run_shell_policy`
+  is split into a thin shell `check_run_shell_policy_for(command, ctx,
+  flavor)`; the whole gate (3 tables / lookup key / basename /
+  command-substitution and redirect scanning / trusted read+download /
+  trusted-root normalization) passes the flavor through instead of
+  internally hard-coding `OsFlavor::current()` — end-to-end regression
+  tests for the Windows branch run directly on a macOS host, aligned with
+  the TS mirror matrix.
+- **Cmdlet flag forms**: path extraction recognizes PowerShell's three
+  flag-assignment forms — `-Path value` (spaced), `-Path:value` (colon
+  inline), `-Path=value` (equals inline, added 2026-08-24; previously the
+  `=` form of `Select-String -Path=C:\secret` was unrecognized, leaving the
+  path set empty and being misjudged as stdin-only allow — a fail-open,
+  fixed with a regression matrix). The `-Path=` / `-LiteralPath=` values of
+  `Get-Content` / `type` / `Format-Hex` likewise go through trusted_root
+  validation as paths; flags like `-Tail=5` whose value is not a path are
+  not misjudged. **Flag prefix abbreviations** (`-pa` = `-Path`) are not
+  recognized — treated as unknown flags and skipped, covered by the no-path
+  verdict (Layer 6 deny) / allowlist-miss; a known residual risk.
+- **scrub safe-name**: the env-var scrub keyword regex (`KEY` / `SECRET` /
+  `TOKEN` / `PASSWORD` / …) has had no safe-name allowlist since Round-58
+  (the old deny list was dead code and has been deleted); Windows system
+  variables (`USERPROFILE` / `APPDATA` / `PSMODULEPATH`, etc.) contain none
+  of those keywords and naturally never get redacted — **no new entries
+  needed**.
+
 ---
 
 ## 6. Gate 3: Execute Isolation
@@ -450,6 +716,19 @@ subprocess:
 - **No persistent network state**: Unlike the venv / conda / alias accumulation
   in the user's shell, the AI's subprocess is a clean zsh each time — side
   effects do not pollute the user environment.
+
+> Windows port Phase 1d (2026-08-24): on Windows the subprocess is
+> `pwsh/powershell -NoProfile -Command <cmd>` (the argument form is dispatched
+> by shell filename via `pty::env::shell_exec_args`) — `-NoProfile` does not
+> load `$PROFILE`, the same design intent as `-f`; timeout kills go through
+> the `taskkill /PID <pid> /T /F` process tree (unix uses the killpg process
+> group); boot environment capture (`capture_user_env`) is skipped wholesale,
+> using the process env directly (Windows GUI launches have no launchd
+> env-missing problem). The five-gate structure is unchanged. Since W1.3
+> (2026-08-25), Windows injects a `[Console]::OutputEncoding=UTF8` prelude
+> before `-Command` (injected after the gate, without affecting policy/safety
+> semantics), and pipeline byte decoding gains a GBK fallback (native-exe
+> localized output on Chinese systems).
 
 ---
 
@@ -755,10 +1034,12 @@ is waiting for your decision / which task has finished, and ask you for
 instructions. Coding mode is off by default; turning it off restores the
 "never sent to the model" behavior.
 
-**Agent config file read/write (2026-08-17, P2-F1)**: chat's `agent_config`
-tool can read and modify the CLI config files of the three supported coding
+**Agent config file read/write (2026-08-17, P2-F1; Codex see v2.2.0)**: chat's `agent_config`
+tool can read and modify the CLI config files of the four supported coding
 agents: claude-code → `~/.claude/settings.json`, kimi-code →
-`~/.kimi-code/config.toml`, opencode → `~/.config/opencode/opencode.json`.
+`~/.kimi-code/config.toml`, opencode → `~/.config/opencode/opencode.json`,
+codex → `~/.codex/kaya.config.toml` (a kaya-dedicated standalone profile,
+isolated from the ChatGPT desktop app).
 - **Reads**: `action="read"` output is first masked by key name (keys named
   key/token/secret/password show only the first 4 chars + `***`), then passed
   through the secret scrubber as a safety net (secrets under non-matching key
@@ -771,6 +1052,12 @@ agents: claude-code → `~/.claude/settings.json`, kimi-code →
   a new chat session asks again, and an app restart clears all grants. Without
   a grant the model only gets a "waiting for user approval" marker and no
   bytes are written.
+- **Model configuration fields are locked (v2.2.1)**: the AI can still **read**
+  an agent's config while troubleshooting, but it can **no longer change** the
+  model name, endpoint address, or key in it — such edits are refused, and it
+  will point you to the model library in "Settings → Models" instead (the
+  model library is the single source of truth and the sole writer; editing /
+  deleting an entry automatically syncs to all bound agents).
 - **Backup before write**: every write first backs up the previous version to
   `<file>.bak`; the deep merge preserves existing fields the patch does not
   mention.
@@ -828,14 +1115,17 @@ gate, same event stream, same app log).
 |---|---|---|---|
 | UI state (messages / settings) | `localStorage` key `kaya` | Front-end Zustand persist | User clears manually |
 | LLM context | `~/.kaya/conversations/c_*.json` | Rust `ConversationStore` | User clears manually |
-| Audit log | `~/.kaya/audit/s_*/events-*.jsonl` | Front-end `recordEvent` (Rust invokes fs) | User clears manually |
+| Audit log | `~/.kaya/audit/s_*/events-*.jsonl` | Front-end `recordEvent` (Rust invokes fs) | Automatically retained for 90 days (expired entries auto-cleaned since v2.1.10); user can also clear manually |
 | Debug capture (optional) | `~/.kaya/debug/s_*/turn-N.json` | Rust debug module | dev-only, off by default |
 | App diagnostic log | `~/.kaya/logs/app-YYYY-MM-DD.jsonl` | Rust `app_log` (front-end `snapshotCursor` cursor diagnostic probes; since 2026-08-26 channel reconnect errors are deduped-on-change into this log, tag `channel` — Windows GUI builds have no stderr, this is the only durable trail on that platform) | manual prune of logs older than 7 days (Settings → App log); file 0o600; **content is diagnostic metadata only** (DOM/CSS state, counters, byte lengths; channel connection error text may contain hostnames/error descriptions, URL query/fragment redacted so no ticket is persisted), no PTY output / keystrokes / secrets |
 | Terminal scrollback | `~/.kaya/terminal/<tabId>.log` | Rust scrollback append (round-89) | 10MB cap + truncate-to-75% rotation; deleted on tab close |
-| Per-tab shell history | `~/.kaya/history/<tab_id>.history` | Rust per-tab HISTFILE (round-111) | merged back to `~/.zsh_history` on tab close; file 0o600 |
-| Login token (refresh_token) | macOS Keychain (`com.kaya.auth` / dev `com.kaya.dev.auth`) | Rust `auth_tauri` (round-137/138, single refresh_token item) | deleted on logout / 401 cleanup; access_token not persisted (memory only, 15min TTL) |
-| API Key (your own key) | `localStorage` | Front-end (not written to disk files) | User clears manually; unused by default built-in model |
-| Agents provider library (incl. API keys) | `~/.kaya/agent-providers.json` | Rust agents module (Agents panel "Use"/"Save") | User deletes manually; **API keys stored in plaintext** (same as cc-switch; noted in the settings UI) |
+| Per-tab shell history | `~/.kaya/history/<tab_id>.history` | Rust per-tab HISTFILE (round-111); since Windows port Phase 2, Windows sessions use the PSReadLine `HistorySavePath` (per-tab init.ps1 injection, an equivalent HISTFILE mechanism) | merged back to `~/.zsh_history` on tab close; file 0o600 |
+| Login token (refresh_token) | System keychain (macOS Keychain `com.kaya.auth` / dev `com.kaya.dev.auth`; Windows Credential Manager) | Rust `auth_tauri` (round-137/138, single refresh_token item) | deleted on logout / 401 cleanup; access_token not persisted (memory only, 15min TTL) |
+| API Key (your own key) | System keychain (macOS Keychain / Windows Credential Manager) | Rust (since v2.2.1; plaintext keys in localStorage / config files from earlier versions are migrated automatically on upgrade) | User clears manually; unused by default built-in model; deleted together when the model entry is deleted |
+| Unified model library (entry definitions, no keys) | Model-library file under `~/.kaya/` (contains no API key values) | Rust models module (Settings → Models; centralized in v2.2.0, unified as the sole writer in v2.2.1) | User deletes manually; the legacy `~/.kaya/agent-providers.json` (plaintext keys, 0o600 atomic writes) has been superseded by the model library and migrated automatically |
+| Remote-access device identity | `~/.kaya/remote/device.json` | Rust remote module (v2.3.2) | Permissions 0o600; turning remote access off disconnects immediately |
+| IM channel session mapping | `~/.kaya/channels/sessions.json` | Rust channels module (v2.1.0, IM platform users ↔ local sessions) | User clears manually |
+| IM mirror target chat | `~/.kaya/channels/mirror.json` | Rust channels module (Unreleased, mirror binding restored across restarts) | User clears manually (deleting while the channel is running does not recreate it in place — the cross-restart binding recovery lapses, and a restart falls back to the sole_key heuristic) |
 | App version metadata (display) | Memory (`AppInfo` runtime field, **not persisted**) | Rust `get_app_info` (`src-tauri/src/app_info.rs`, round-56) | Within process; re-read on restart |
 
 **App version metadata** (round-56, 2026-06-28): The `get_app_info` Tauri singleton
@@ -1012,7 +1302,8 @@ When changing:
 - **Commands you type directly into the terminal are not intercepted by any
   gate** — this is a design decision (the user's shell is the user's
   responsibility), not a vulnerability.
-- **Windows / Linux are not in Phase 1** — currently macOS only.
+- **Linux is not yet supported** — currently macOS and Windows (x64) are
+  supported.
 
 ---
 
@@ -1038,7 +1329,7 @@ Every change must at minimum:
 
 ## 14. One-Sentence Summary
 
-> kaya **runs on your Mac**, and **by default** the LLM cannot see file
+> kaya **runs on your computer**, and **by default** the LLM cannot see file
 > contents. Every word you say and every tool output goes through 5 gates
 > before leaving the device, and all state stays on the local machine where
 > it can be replayed and audited. **Privacy First is structural, not a

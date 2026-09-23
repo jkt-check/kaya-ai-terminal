@@ -4,9 +4,9 @@
 
 > [中文 README](README.md)
 
-**kaya** is a Mission Control for AI coding agents that runs on **your own Mac / Windows PC**: chat and code in one window — the LLM can run shell commands and read terminal output, and with coding-mode grants it can type into coding agents (Claude Code / Kimi Code / OpenCode / Reasonix) running in tabs. Bind a conversation to a running agent with `/agents`; each tab gets its own PTY, so multiple agents run truly in parallel.
+**kaya** is a Mission Control for AI coding agents that runs on **your own Mac / Windows PC**: chat and code in one window — the LLM can run shell commands and read terminal output, and with coding-mode grants it can type into coding agents (Claude Code / Kimi Code / OpenCode / Codex) running in tabs. Type `@` or `/agents` in chat to bind a conversation to a running coding agent; each tab gets its own PTY, so multiple agents run truly in parallel. Away from your computer? Use kaya through the Feishu (since v2.1.0) / Slack (since v2.3.6) integration (WeCom coming soon) or browser remote access (since v2.3.2, cloud relay, explicitly opt-in).
 
-**Privacy first**: by default the LLM cannot see any of your file contents — this is structural, not a setting. Every user input and tool output passes through 5 gates (input guard → policy gate → safety gate → isolated execution → output scrub) before leaving your machine. All state stays local; no cloud sync, no telemetry.
+**Privacy first**: by default the LLM cannot see any of your file contents — this is structural, not a setting. Every user input and tool output passes through 5 gates (input guard → policy gate → safety gate → isolated execution → output scrub) before leaving your machine. All state stays local; no cloud sync. When signed in, kaya collects usage statistics that never include conversation content (active days, usage duration, platform and version distribution), and you can turn this off anytime in Settings → Account; nothing is reported while signed out.
 
 ## What This Repository Is
 
@@ -21,7 +21,7 @@ This is kaya's **public documentation repository** — published content only, *
 
 ## Download & Install
 
-Installers are published on the **[official kaya download page](https://yunhou.ai/download)**:
+Installers are published on the **[official kaya download page](https://www.yunhouai.com/download)**:
 
 - **macOS**: download `kaya-<version>-macos-universal.dmg` (universal for Apple Silicon and Intel), then drag `kaya.app` into `/Applications`.
 - **Windows (x64)**: download `kaya-<version>-windows-x64.exe` (nsis, recommended) or `.msi`, and run the installer.

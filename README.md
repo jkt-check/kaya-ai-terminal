@@ -4,9 +4,9 @@
 
 > [English README](README.en.md)
 
-kaya 是一个跑在**你自己的 Mac / Windows PC** 上的 AI 编程 Agent 总控台：一个界面边聊天边 coding——LLM 可以调 shell 命令、读终端输出，coding 模式授权后可直接向 tab 里的编程 agent（Claude Code / Kimi Code / OpenCode / Reasonix 等）发送输入；`/agents` 把对话绑定到运行中的 coding agent，每 tab 独立 PTY，多 agent 真正并行。
+kaya 是一个跑在**你自己的 Mac / Windows PC** 上的 AI 编程 Agent 总控台：一个界面边聊天边 coding——LLM 可以调 shell 命令、读终端输出，coding 模式授权后可直接向 tab 里的编程 agent（Claude Code / Kimi Code / OpenCode / Codex 等）发送输入；聊天里敲 `@` 或 `/agents` 把对话绑定到运行中的 coding agent，每 tab 独立 PTY，多 agent 真正并行。人不在电脑前也能用：飞书（v2.1.0 起）/ Slack（v2.3.6 起）接入（企业微信即将支持），或浏览器远程访问（v2.3.2 起，云中继，显式开启）。
 
-**隐私第一**：默认 LLM 看不到你的任何文件内容——这是结构性的，不是配置项。所有用户输入与工具输出在出门前都要过 5 道关卡（用户输入 guard → policy gate → safety gate → execute 隔离 → output scrub），全部状态留在本机，无云同步、无遥测。
+**隐私第一**：默认 LLM 看不到你的任何文件内容——这是结构性的，不是配置项。所有用户输入与工具输出在出门前都要过 5 道关卡（用户输入 guard → policy gate → safety gate → execute 隔离 → output scrub），全部状态留在本机，无云同步。登录状态下会收集不含对话内容的用量统计（活跃天数、使用时长、平台与版本分布），可随时在「设置 → 账户」关闭；未登录时无任何上报。
 
 ## 本仓库是什么
 
