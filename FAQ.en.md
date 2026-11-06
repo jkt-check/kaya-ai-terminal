@@ -1,6 +1,6 @@
 # kaya FAQ
 
-> Full usage instructions: [User Guide](docs/PRODUCT.md) (bilingual). Privacy design details: [docs/PRIVACY.en.md](docs/PRIVACY.en.md). Per-version changes: [Release Notes](RELEASE_NOTES.en.md).
+> Full usage instructions: [User Guide](docs/PRODUCT.en.md). Privacy design details: [docs/PRIVACY.en.md](docs/PRIVACY.en.md). Per-version changes: [Release Notes](RELEASE_NOTES.en.md).
 >
 > [中文版](FAQ.md)
 
@@ -13,6 +13,7 @@
 - [Coding-agent Collaboration (coding mode)](#coding-agent-collaboration-coding-mode)
 - [IM Channels (Feishu / Slack / WeCom)](#im-channels-feishu--slack--wecom)
 - [Remote Access (browser)](#remote-access-browser)
+- [Cross-Device Coordination](#cross-device-coordination)
 - [Troubleshooting](#troubleshooting)
 
 ---
@@ -45,21 +46,21 @@ PowerShell 7 (pwsh) by default, falling back to the built-in Windows PowerShell 
 
 **Can the AI read my files?**
 
-By default, **no**. Content-reading commands (`cat`, `head`, `grep`, `less`, …) are rejected at the policy layer — this is structural, not a setting. The only exception: files you deliberately place under `~/.kaya/` (the trusted root) can be read with read-only commands — scrubbing still applies and all write operations remain blocked. See the user guide chapter "Let the AI read a file" in [docs/PRODUCT.md](docs/PRODUCT.md).
+By default, **not arbitrarily**. Files you deliberately place under the `~/.kaya/` trusted root can be read by restricted tools, with output scrubbing and additional sensitive-read rules for control-plane data. Deleting, moving and directly editing files remain blocked; restricted output redirection to safe file extensions is an exception. AI tools run in isolated subprocesses, separately from commands you run in your real terminal. See [Let the AI Read a File](docs/PRODUCT.en.md#let-the-ai-read-a-file).
 
 **Will a key I paste be sent out?**
 
-No. Your input is scrubbed before it enters the conversation and logs (full PEM-block redaction, API keys, ID numbers, phone numbers, credit cards — 30+ pattern families), and the UI shows a "scrubbed" badge on hits. But scrubbing is not an absolute guarantee — never paste truly important keys into any LLM app.
+Recognized matches are scrubbed before entering the conversation and logs (full PEM-block redaction, API keys, national IDs, phone numbers, credit cards and other patterns), and the UI shows a "scrubbed" badge. Detection is not an absolute guarantee that every key stays local; never paste truly important keys into any LLM app.
 
 **What does the cloud model receive?**
 
-Only your (scrubbed) chat text and (scrubbed) tool results, sent to the model source you selected in Settings:
+Chat text and tool results are scrubbed and sent to your selected model. Images you deliberately paste are re-encoded and stripped of metadata, then sent separately without text scrubbing; the built-in model does not support images:
 
 - **Built-in model (default)**: sent over your login token to the yunhou first-party server, which answers on your behalf;
 - **OpenAI compatible (your own key)**: sent to the LLM provider you chose (DeepSeek / OpenAI / OpenRouter / etc.);
-- **Ollama (local)**: nothing leaves your machine.
+- **Ollama (local)**: local inference and conversation / tool content stay on the machine, but independent analytics, search, IM and remote channels are not automatically disabled.
 
-Your local files, API key contents, and environment variables are never sent. Local UI state, sessions, and audit logs live only on your machine (`localStorage` + `~/.kaya/`) — no cloud sync. When signed in, kaya collects **usage statistics** (active days, usage duration, platform and version distribution, since v2.1.14) — **never** conversation content, file content, or personal identity information — and you can turn this off anytime in Settings → Account; nothing is reported while signed out.
+Files are not uploaded arbitrarily; file content you provide or scrubbed terminal output can enter model context, and API keys are used only for the relevant service's authentication. Local UI state, sessions, memory and audit are not automatically cloud-synced. Signed-in usage heartbeats can be disabled in Settings → Account. **Cloud token-usage upload is a separate feature, off by default and requiring explicit consent**; it uploads aggregate counts and device-registration fields, not conversation or tool content. Explicitly enabled search, IM, remote access and cross-device coordination also have their own transmission paths. See the [privacy design](docs/PRIVACY.en.md).
 
 **Where is my API key stored?**
 
@@ -67,11 +68,11 @@ Only in your machine's **system keychain** (macOS Keychain / Windows Credential 
 
 **Can the AI delete my files?**
 
-The AI has no permission to modify or delete your files. Destructive commands (`rm -rf`, `sudo`, `dd`, `chmod 777`, …) are blocked at the safety gate; `curl | bash`, `brew install`, environment dumps, and the like are never executed. AI-invoked commands run in isolated subprocesses, never in your terminal; blocked commands show the specific reason in the UI.
+kaya's built-in AI `run_shell` cannot delete, move or directly edit your files; restricted redirection and authorized config management have their own explicit boundaries. A coding agent you run in the terminal has its own file permissions and confirmations: kaya's tool allowlist is not a global sandbox around that agent. Blocked operations show the reason in the UI.
 
 **How do I audit what the AI did?**
 
-Every session automatically writes a JSONL audit log (`~/.kaya/audit/`). Settings → Audit lets you replay each session's full event stream and run a three-layer evaluation (rule replay + anomaly rules + AI judge).
+Desktop chat and scheduled turns wired into auditing write JSONL under `~/.kaya/audit/`, including scrubbed text; Settings → Audit provides replay and three-layer evaluation. IM and remote message auditing is not fully wired up. Gateway request events are content-free metadata; gateway privacy records can contain matched originals and tokens and are a separate sensitive local store.
 
 ---
 
@@ -79,15 +80,19 @@ Every session automatically writes a JSONL audit log (`~/.kaya/audit/`). Setting
 
 **Do I need my own API key?**
 
-No. The default is the **built-in model**: sign in with WeChat and you're ready — no key needed. You can also switch to "OpenAI compatible" with your own key (DeepSeek / Kimi / GLM / MiniMax / Qwen / OpenAI / OpenRouter / SiliconFlow / Ollama / custom endpoint, etc.), or pick Ollama for fully local inference. Two-tier feature gating (since v2.1.5): sign in to use bring-your-own-key (BYOK) chat for free; a paid subscription unlocks the built-in model, coding mode, and IM channels / remote access.
+Not necessarily. Built-in models need no personal API key, but require sign-in and an active subscription: WeChat sign-in for the China build, GitHub for the international build. You can also add a BYOK provider or local Ollama under Settings → Models. Sign-in allows free BYOK chat; an active paid subscription unlocks built-in models, coding mode, IM channels and remote access.
 
 **Which providers are supported?**
 
-The BYOK presets have grown from 5 to 11 (v2.1.14): DeepSeek, Kimi (Moonshot), GLM (Zhipu), MiniMax, Qwen (DashScope), SiliconFlow, OpenCode Zen, OpenAI, OpenRouter, Ollama, and Custom (OpenAI compatible). Default models follow each vendor's current lineup, and thinking-capable models automatically get the right reasoning parameters. Since v2.1.8 you can save multiple model profiles and switch with one click from the model switcher in the top bar.
+The unified library has two levels, provider → model, with a compiled-in catalog of 200+ providers, custom compatible endpoints, and multiple accounts per provider. Endpoints and models can be pre-filled; online discovery follows user actions, without background polling. Credentials support API keys and enabled provider OAuth flows. ChatGPT subscriptions serve only the four coding agents through the gateway, not kaya's own Chat or audit AI judge. See [Model Library and Providers](docs/PRODUCT.en.md#model-library-and-providers).
+
+**What is the security gateway? Does it take over all traffic by default?**
+
+The security gateway is the local model gateway, off by default and covering only explicitly connected coding-agent model requests; chat remains independent. Agent configs contain only loopback URLs, placeholder tokens and aliases, with real credentials in the keychain and gateway memory. Default strict mode does not automatically rewrite ordinary PII; policy-based detection and response restoration are not absolute guarantees. See [Model Gateway](docs/PRODUCT.en.md#model-gateway).
 
 **What is Thinking Mode?**
 
-When enabled, the AI shows a collapsible reasoning block before its final answer; the reasoning is also recorded in the audit log. The cost: slower responses and more tokens. Note: the "Reasoning Model" field in Settings currently only feeds the audit AI judge — to change the model used for chat, edit the "Model" field.
+When supported and enabled, the AI shows collapsible reasoning segments at the cost of more time and tokens. Chat reasoning parameters follow the chat-endpoint switch and current model; per-model thinking declarations and efforts primarily configure agent projections. Legacy `reasoning_model` data is used only by the audit AI judge, and no longer has an editor in Settings.
 
 **Why was a command rejected?**
 
@@ -103,7 +108,7 @@ Yes. Every tab gets its own PTY, loads your `.zshrc` (or your PowerShell profile
 
 **Common shortcuts?**
 
-macOS: ⌘T new tab, ⌘W close, ⌘1–9 switch tabs, ⌘D / ⌘⇧D split, ⌘⌥arrow to move between panes, ⌘⇧F focus mode, ⌘0/=/- font size. On Windows these map to the Ctrl+Shift family. Full list in the user guide's Shortcuts chapter ([docs/PRODUCT.md](docs/PRODUCT.md)).
+macOS: ⌘T new tab, ⌘W close, ⌘1–9 switch tabs, ⌘D / ⌘⇧D split, ⌘⌥arrow to move between panes, ⌘⇧F focus mode, ⌘0/=/- font size. On Windows these map to the Ctrl+Shift family, with exceptions detailed in [Keyboard Shortcuts](docs/PRODUCT.en.md#keyboard-shortcuts).
 
 **A tab disconnected — how do I recover?**
 
@@ -123,11 +128,11 @@ Not by default. The AI is an **observer** of your terminal (reads output only), 
 
 **How do `/agents`, `@` and `/` commands work?**
 
-Type `/` in the chat input to open the command menu: `/agents` lists and binds running agents, `/new` starts a new conversation, `/sessions` browses history, `/help` shows help. You can also type `@` directly (since v2.3.1) to summon the list of running agents; picking one binds it and completes the `@instance ID` into the input box. Once bound, non-built-in `/commands` (e.g. `/auto`) are forwarded straight to that agent's input line without consuming an LLM turn.
+Type `/` for the command menu: `/agents` binds running agents, `/new` starts a conversation, `/sessions` shows read-only history, `/memory stats` shows memory status, `/compact` compacts context, and `/help` shows help. Type `@` to select an agent by name, project or directory. Once bound, non-built-in `/commands` are forwarded after target identity and state revalidation, without consuming an LLM turn.
 
 **What does the Agents management center do?**
 
-Silently installs / updates / uninstalls coding agents in the background (npm > brew > official script, automatically falling back to the next method on failure). Model configuration is maintained centrally in the model library under **Settings → Models** (API keys live only in the system keychain); in the Agents panel, click "Use" to bind an entry to an agent and write it into that agent's own config file (automatic .bak backup first) — editing or deleting an entry later syncs automatically to the agents bound to it. You can also just say "install Claude Code for me" in the chat.
+Settings → Coding Agents installs, updates, uninstalls and configures agents, with custom command names and controlled config optimization. Models live in Settings → Models; enable the gateway, then turn on Attach via gateway and choose a default model on the agent's detail page. Managed keys are snapshotted before takeover and restored according to ownership and current values, without putting real endpoints or credentials into agent configs. You can also ask "install Claude Code for me" in chat.
 
 ---
 
@@ -155,6 +160,18 @@ The feature is off by default and explicitly opt-in; turning it off disconnects 
 
 ---
 
+## Cross-Device Coordination
+
+**Can an agent on another computer receive work?**
+
+Yes. Same-account devices reuse the remote-access relay. The executor must enable coordination, allow the source device and select the permitted agents; terminal writes still require authorization. The coordination master switch gates execution, not same-account discovery and status traffic, which can flow once remote access is enabled.
+
+**Can I inspect remote output and answer confirmation menus?**
+
+When both versions support it and the executor allows conversation relay, you can read bounded, scrubbed screen/report output on demand and answer the current menu with 1–9. Each single-use menu ticket is bound to the current instance. Chat relay and ToDo List dispatch are independent flows with no relaxation of their permissions. See [Cross-Device Coordination](docs/PRODUCT.en.md#cross-device-coordination).
+
+---
+
 ## Troubleshooting
 
 **The AI never responds / answers very slowly?**
@@ -173,7 +190,7 @@ Check whether `~/.kaya/conversations/` was cleaned up. To wipe all local data: `
 
 **Where are the diagnostic logs?**
 
-Settings → App Log → "Open log folder"; logs live under `~/.kaya/logs/` (they do not contain your conversation content).
+Settings → Logs & Debug → "Open log folder"; logs live under `~/.kaya/logs/` and do not contain conversation content. Gateway privacy records are a different store that can contain sensitive originals, not diagnostic logs.
 
 **The built-in model reports "Request Rejected by Upstream (502)" — what do I do?**
 
